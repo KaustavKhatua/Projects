@@ -1,0 +1,408 @@
+---
+title: "Multivariate Analysis Project"
+author: "Shubham Kumar (181144)          Kaustav Khatua (181075)"
+date: "05/04/2020"
+header-includes:
+   - \usepackage{accents}
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+\newpage
+\section{Iris dataset}
+This a classic dataset to apply classification techniques as the data is small, balanced and no missing value is present. Here goal is to predict **Species** of the flower depending on its features (eg. sepal and petal length, sepal and petal width). All the feature variables are continuous.
+\
+```{r}
+iris_data<-read.table("http://people.stat.sc.edu/Hitchcock/fisheriris.txt",header=TRUE)
+iris_data<-iris_data[,-1]   # As first column is the index of observation, so dropping it.
+```
+We will use **Multinomial Logistic Regression** to classify our data.
+\
+\subsection{Data Preprocessing}
+Before applying classification tachniques we have to first ensure that, we can classify data using the four features. We can answer this question by observing distribution of features across different Species. If distributions are more or less different then we can expect that we can classify data using feature variables.
+```{r}
+par(mar=c(2,4.1,2,2.1), mfrow=c(2,2),oma=c(1,0,1,0))
+for(i in 1:4){boxplot(iris_data[,i]~iris_data[,5],ylab=colnames(iris_data)[i])}
+mtext("Distribution of Features for Different Species",outer=TRUE,line=-1)
+```
+From above diagram we can see that features are more or less differently distributed across different species. So, we expect that classifying Species using these feature variables will be meaningful.  
+\
+It may be noted that, there is nothing to worry about the **outliers** shown in the above plots, as of course there will be some cases where class label does not match the usual class specific properties, also these outliers are small in number.
+\newpage
+\subsection{Model Fitting and Performance Check}
+We first split the dataset into training, testing data of size 110 and 40
+respectively; then fiitted model on training dataset.
+```{r}
+set.seed(4)
+random_numbers<-sample(1:150,size=110)
+training_data<-iris_data[random_numbers,]
+test_data<-iris_data[-random_numbers,]
+```
+\
+\
+There are many packages available in R to perform this technique. But we used **multinom** function from **nnet** package as it is easy to apply.
+```{r,results='hide'}
+library(nnet)
+logistic<-multinom(Species~.,data=training_data,maxit=1000)
+```
+
+
+```{r}
+summary(logistic)
+```
+\
+\
+Now we check for significance of regressors.
+```{r}
+logistic_coefficients<-coefficients(logistic)    # Extracting coefficients.
+logistic_sd<-summary(logistic)$standard.errors    # Extracting std. deviations of coefficients.
+
+z_values<-logistic_coefficients/logistic_sd
+p_values<-(1-pnorm(abs(z_values)))*2
+p_values
+```
+All p-values are greater than 0.05 indicating each regressor is significant.
+\newpage
+Now we observe performance of this model on test dataset.
+```{r}
+# Test data has class labels in its fifth column, so we have to exclude it.
+# We add one column of 1 for intercept.
+x<-cbind(1,test_data[,-5])
+
+true_labels<-test_data[,5]
+predicted_labels<-rep("a",nrow(x))
+
+for(i in 1:nrow(x)){
+  denominator<-1+exp( as.numeric(x[i,]) %*% logistic_coefficients[1,] )+
+               exp( as.numeric(x[i,]) %*% logistic_coefficients[2,] )
+  
+  p_setosa<-1/denominator
+  p_versicolor<-exp(as.numeric(x[i,])%*%logistic_coefficients[1,])/denominator
+  p_virginica<-1-p_setosa-p_versicolor
+  
+  probability_vector<-c(p_setosa,p_versicolor,p_virginica)
+  names(probability_vector)<-c("setosa","versicolor","virginica")
+  
+  predicted_labels[i]<-names(which.max(probability_vector))
+}
+```
+```{r}
+table(true_labels,predicted_labels)    # One column has one fixed label of predicted labels
+```
+Considering the number of misclassified instances with respect to total size of the test data we can imply that Logistic Regression can classify the data well.
+\
+\begin{center}\subsection{\underline{Warning:}}\end{center}
+Though the there is no problem in prediction; we have another issue. The problem is that if the data changes slightly the coefficient estimates are **changing significantly**. Sometimes the algorithm of fitting model is **not** even **converging** after 1000 steps.
+```{r,results='hide'}
+m=multinom(Species~.,data=iris_data[c(1:30,51:80,101:130),c(-3,-4)],maxit=10000)
+n=multinom(Species~.,data=iris_data[c(1:40,51:90,101:140),c(-3,-4)],maxit=10000)
+```
+
+```{r}
+coefficients(m)
+```
+```{r}
+coefficients(n)
+```
+
+\newpage
+The reason behind the problem may be that,\
+ **1)**The training data is too small to fit a model with 10 coefficients to be estimated.\
+ **2)**May be **Multicollinearity** is present in the data.
+```{r}
+cor(iris_data[,-5])
+```
+Three correlations are very high indicating multicollinearity is present.
+\
+In both the cases reducing number of variables may solve the problem. Now, **Principal Component Analysis** and **Factor Analysis** are two useful methods to reduce number of variables. We opted for PCA.
+\
+\
+\subsection{Principal Component Analysis}
+```{r}
+pr_comp<-prcomp(iris_data[,-5])
+pr_comp_var<-(pr_comp$sdev)^2  # variances of PCs/eigen values of the covariance matrix of the data.
+cumsum(pr_comp_var)/sum(pr_comp_var)  # Proportion of  variation explained by Principal Components.
+```
+The first principal component alone explains **92%** of total variability in the original data. So, may be the first PC will be enough for model building.
+\
+\
+\
+Now we check whether coefficient estimates are stable or not ( problem that we were facing).
+```{r,results='hide'}
+rotated_data<-as.data.frame(pr_comp$x)    # Extracting rotated data matrix.
+rotated_data$V5<-iris_data[,5]
+model_one=multinom(V5~PC1,data=rotated_data[c(1:30,51:80,100:130),],maxit=1000)
+model_two=multinom(V5~PC1,data=rotated_data[c(1:40,51:90,100:140),],maxit=1000)
+```
+```{r}
+print(coefficients(model_one))
+```
+```{r}
+print(coefficients(model_two))
+```
+The variation in magnitude of coefficient estimates are comparatively smaller than before. So, we think we solved our problem to some extent.
+\newpage
+\subsection{Final Model}
+We will finally fit model with rotated data and check performance of the fitted model on the test data.
+```{r,results='hide'}
+new_index<-sample(1:150,110)
+new_training_data<-rotated_data[new_index,]
+new_test_data<-rotated_data[-new_index,]
+new_model<-multinom(V5~PC1,data=new_training_data,maxit=1000)
+new_coefficients<-coefficients(new_model)
+```
+```{r}
+new_x<-cbind(1,new_test_data[,-5])
+
+new_true_labels<-new_test_data[,5]
+new_predicted_labels<-rep("a",nrow(x))
+
+for(i in 1:nrow(new_x)){
+  denominator<-1+exp( as.numeric(new_x[i,1:2]) %*% new_coefficients[1,] )+
+               exp( as.numeric(new_x[i,1:2]) %*% new_coefficients[2,] )
+  
+  p_setosa<-1/denominator
+  p_versicolor<-exp(as.numeric(new_x[i,1:2])%*%new_coefficients[1,])/denominator
+  p_virginica<-1-p_setosa-p_versicolor
+  
+  probability_vector<-c(p_setosa,p_versicolor,p_virginica)
+  names(probability_vector)<-c("setosa","versicolor","virginica")
+  
+  new_predicted_labels[i]<-names(which.max(probability_vector))
+}
+table(new_true_labels,new_predicted_labels)
+```
+
+Performance on test data is good. So, **new_model** is our final model.
+\newpage
+\section{2. Foodstuffs Content Data}
+This data is perfect for applying **Clustering** techniques. In every row the first column is food code and other five columns are amount of nutrient ingredients in it. Based on these five features we have to seperate out similar type of foods (**ie.** we have to find clusters).
+```{r}
+food <- read.table("http://people.stat.sc.edu/hitchcock/foodstuffs.txt", header=T)
+food <- food[,-1]    # Food code is not required to find clusters.
+```
+
+\subsection{Data Preparation}
+Most of the Clustering techniques are distance based. So, prior to applying any clustering techniques we have to scale the data, as the measurement magnitudes are not in same scale (Calcium and Iron have very small measurements, Protein and Fat have measurements in the scale of 10, whereas Energy has measurement in scale of 100). If we don't scale data then Calcium and Iron will lose significance in forming clusters. Another advantage of scaling is that clustering techniques converge faster on scaled data. We will apply **Hierarchical Clustering** technic on scaled data.
+```{r}
+scaled_data <- scale(food)
+```
+\subsection{Forming Clusters}
+We will use **complete linkage** hierarchical clustering method.
+```{r include=FALSE}
+library(dendextend)     # This package will be used to plot the dendrogram.
+```
+```{r,results='hide'}
+clusters <- as.dendrogram(hclust(dist(scaled_data), method="complete"))
+plot(clusters,main="Dendrogram",ylab="Height")+
+  abline(h=heights_per_k.dendrogram(clusters)["5"]-0.2,lwd=2,lty=2,col="blue")
+```
+From dendrogram we can see, a horizontal line, at height just more than 4, will cut 5 vertical lines; **ie** if we set **measure of dissimilarity** (height) not to be more than  4.5 (approximately) then we will get 5 clusters. The number of clusters will decrease gradually with the increase in height and at height equal to 6 we will get one cluster.
+\subsection{Determining Appropriate Number of Clusters}
+We have applied the method but have not obtained clusters yet. The cutree function takes an argument: the number of clusters we want, and returns that many clusters and their members.
+But we don't know appropriate number of clusters. So, we have to determine it. We will do it by **Elbow Method**.
+```{r}
+clust_two<-cutree(clusters,k=2)     # clust_two contains members of two clusters.
+clust_three<-cutree(clusters,k=3)
+clust_four<-cutree(clusters,k=4)
+clust_five<-cutree(clusters,k=5)
+```
+Now we will calculate total within cluster sum of squares for different choice of number of clusters. We will choose the number after which total within cluster sum of squares does not change significantly (this is Elbow Method).
+```{r}
+wss_two<-0
+for(i in 1:2){
+  subset_data<-subset(food,clust_two==i)  # Subsetting data according to their assigned cluster
+  
+  wss_two<-wss_two+(nrow(subset_data)-1)*sum(diag(var(subset_data)))  # wss is nothing but
+  # the trace of sample covariance matrix multiplied by divinding factor.
+}
+
+wss_three<-0
+for(i in 1:3){
+  subset_data<-subset(food,clust_three==i)
+  wss_three<-wss_three+(nrow(subset_data)-1)*sum(diag(var(subset_data)))
+}
+
+wss_four<-0
+for(i in 1:3){  # Excluding four as corresponding to it there is only one observation.
+  subset_data<-subset(food,clust_four==i)
+  wss_four<-wss_four+(nrow(subset_data)-1)*sum(diag(var(subset_data)))
+}
+
+wss_five<-0
+for(i in c(1,2,4)){     # Excluding 3 and 5 for the same reason.
+  subset_data<-subset(food,clust_five==i)
+  wss_five<-wss_five+(nrow(subset_data)-1)*sum(diag(var(subset_data)))
+}
+```
+After k=5, we stopped as, for k=4 and 5 there were clusters containing only one observation. So, it is not required to set k=6 or more.
+```{r}
+plot(2:5,c(wss_two,wss_three,wss_four,wss_five),
+     xlab="Number of clusters",ylab="Total Within Cluster SS",main="Elbow Method",type="b")
+```
+The curve has become more or less flat after k=4. So, we pick that as  our **appropriate number of clusters**.
+\subsubsection{\underline{Note}}
+One may be suspicious about k=4, as there was a cluster containing only one observation. But the fact is that the observation had calcium measurement very different from others. Which will be clear from following code blocks.
+```{r}
+print(sort(food$Calcium))
+```
+```{r}
+print(subset(food,clust_four==4))    # Printing the suspicious cluster.
+```
+So, our choice is feasible.\
+\
+Also, We could have used **k-means** clustering technic on this data. But there is not much difference in theory of these two techniques, they differ only in their application procedure. So we did not apply k-means clustering.
+\section{Life Expectancy Data}
+The eight columns of the data represent life expectancy for men and women from different countries across different age groups. The prefix letter stands for gender and following number represents age. So, w75 represents life expectancy of a 75 year old woman.
+```{r}
+life<-read.table("http://people.stat.sc.edu/Hitchcock/lifeex.txt",header=TRUE)
+```
+\subsection{Applying Factor Analysis}
+First we will observe the correlation matrix of the data. If, some correlations are high then clearly we can represent some of the variables with the help of others.
+```{r include=FALSE}
+options(width=120)
+```
+```{r comment=NA}
+cor(life[,-1])
+```
+Correlations between m0 and w0, w25 and w50, etc. are high, indicating some variables can be well explained with the help of others. So, we expect that, we can reduce number of variables using Factor Analysis. 
+\
+\
+\
+Now, we don't know what is the right number of factors. To determine it, we first fit model with different number of factors (upto four) and consider the one for which some evalutionary measure is satisfactory. Either we can look for the **communalities** or the **p-value** of the fit. In both the cases higher the better situation.
+```{r}
+one_factor<-factanal(life[,-1],factors=1)    # Fitting one factor model.
+uniquenesses<-one_factor$uniquenesses
+communalities<-1-uniquenesses
+communalities
+one_factor$PVAL
+```
+Communalities for some variables are high but few are low as well, so one factor can replace some of the variables, but not all. The p-value also indicates that we have to extract more factors.\
+\
+Now, we increase number of factors gradually.
+```{r}
+two_factor<-factanal(life[,-1],factors=2)    # Fitting two factor model.
+uniquenesses<-two_factor$uniquenesses
+communalities<-1-uniquenesses
+communalities
+two_factor$PVAL
+```
+Communalities, as well as p-value has increased. But, not only the p-value is insignificant, some communalities are low also. So, we have to increase number of factors.
+\
+```{r}
+three_factor<-factanal(life[,-1],factors=3)    # Fitting three factor model.
+uniquenesses<-three_factor$uniquenesses
+communalities<-1-uniquenesses
+communalities
+three_factor$PVAL
+```
+All the communalities except m25 have increased. So, we can add one more factor to make all the communalities significant. But, in Factor Analysis our goal is to represent original variables using as few underlying factors possible. So, though all the communalities are not great, but we stop at three factors, considering the significant p-value.
+\
+\subsection{Interpreting the Results}
+It may be noted that, we are using **varimax** rotation (default to factanal function) to obtain estimates accordingly, so that a set of original features is highly correlated with only one factor and nearly uncorrelated with others. In this way we get easy to interpret factors. But, what are they in our set up?
+\
+```{r}
+three_factor$loadings
+```
+Life expectancy for different age grops are following this pattern. \hspace{5pt}1) younger ages (m0,m25,w0,w25) have highest loadings on Factor1, \hspace{5pt}2) middle aged and old women (w50,w75) have loadings on Factor2 and\hspace{5pt} 3) middle and old aged men (m50,m75) on Factor3. So,it may be he case that, upto some early ages life expectancy pattern remains same irrespective of the gender. After that, it changes differently for men and women.\
+\
+Keeping this pattern in mind we may interpret the three factors as follows:
+\begin{itemize}
+  \item Factor1 is Life expectancy for younger people.
+  \item Factor2 is Life expectancy for middle aged and old men.
+  \item Factor3 is Life expectancy for middle aged and old women.
+\end{itemize}
+\
+Also, from the last line of the output from R, we see that, Factor3 has cummulative variance 0.887. So, we get factors with plausible interpretation and capable of explaining significant variability (nearly 89%) in the original data.
+\newpage
+\section{SAT Scores Data}
+The dataset has four columns, first three are scores of individuals in three different subjects and the fourth column whether he/she graduated or not. Here goal is to predict whether an individual will graduate or not, using his/her scores in these subjects.
+```{r}
+satgradu <- read.table("http://www.stat.sc.edu/~hitchcock/satgradu.txt", header=T)
+
+for (i in 1:length(satgradu$gradu)){              # Re-encoding to have better readability.
+  if(satgradu$gradu[i]==1){satgradu$gradu[i]="graduated"}
+  else{satgradu$gradu[i]="not graduated"}         
+}
+satgradu$gradu<-as.factor(satgradu$gradu)
+```
+
+\subsection{Data Preprocessing}
+Before applying classification techniques we have to make sure that these three variables are capable of classifying the data. Boxplots serve the purpose to some extent.
+```{r}
+par(mar=c(2,4.5,2,0.5),mfrow=c(1,3),oma=c(1,0,1,0))
+boxplot(math~gradu,data=satgradu,ylab="score in Maths")
+boxplot(reading~gradu,data=satgradu,ylab="score in Reading")
+boxplot(writing~gradu,data=satgradu,ylab="score in Writing")
+mtext("Distribution of Features for Graduation Status",outer=TRUE,line=-1)
+```
+Medians of all the variables are higher for graduated students. It also appears that candidate succesfully graduated tends to have higher marks in reading and spread of the boxplot for graduated student is less compared to the non graduated student.
+\newpage
+\subsection{Applying Classification Techniques}
+The dataset is too small to split into train and test set. So, we apply all he techniques on the full dataset.
+```{r}
+library(reshape2)
+satgradu$gradu<-relevel(satgradu$gradu,ref="not graduated")
+logistic_regression<-glm(gradu~.,data=satgradu,family=binomial)
+summary(logistic_regression)
+```
+No significant regressor! But we will not care about it, if the model correctly classifies most of the observations in the data.
+```{r}
+glm.prob=predict(logistic_regression,satgradu,type = "response")
+glm.pred=rep("not graduated",40)
+glm.pred[glm.prob>0.5]="graduated"
+table(glm.pred,satgradu$gradu)
+```
+
+$10\div40 \times 100 = 25\%$ data are misclassified, which may not be too bad. But the problem is that all are classified as Graduated; i.e. all the predicted probabilities are more than 0.5.\
+\
+One may think of increasing the cut-off, as it will give not-graduated predictions also. But doing so is not always meaingful; because we do it only when we want to become too ceratain about some event. Here, if our purpose is to, discard all the fraud degree cases completely, then increasing cut-off makes sense. In that case setting the cut-off to 0.85 may detect all the non graduates completely (in the cost of making many graduates classified as non graduates). But, our purpose is to just classify data correctly. Problem here is that, the estimated probabilities are mixed up for the two classes and Logistic Regression can not find any linear function of the feature vector to discriminate between classes.
+\newpage
+Now, one may be suspicious about the fact that, only 25% of the data is not graduated, so problem may lie there; i.e. data is suffering from **class imbalance** problem. We, will first try to solve it using **over sampling** method; and if the problem persists then look for alternative method of classification.
+\
+\
+\
+To apply over sampling we will replicate not graduated data two times and add that to original data. On this data we again apply logistic regression and check model performance.
+```{r}
+data<-satgradu
+for(i in 1:2){         # Creating balanced data.
+  data<-rbind(data,satgradu[satgradu$gradu=="not graduated",])
+}
+
+data$gradu<-relevel(data$gradu,ref="not graduated")
+balanced_model<-glm(gradu~.,data=data,family="binomial")
+
+glm.prob=predict(balanced_model,data,type = "response")
+glm.pred=rep("not graduated",60)
+glm.pred[glm.prob>0.5]="graduated"
+table(glm.pred,data$gradu)
+```
+No significant change in misclassification rate ($(12+11)\div 60 \approx 22\%$). So, we have to go for different classificaion technique.
+\
+\
+\
+One may try LDA next. But concepts of LDA are built on the basis of normality assumption, narrowing down its applicability. On the other hand, we don't need any assumption to hold, for applying Logistic Regression. Even if the assumptions hold, it is unlikely that LDA will produce remarkably different linear classifier. So, we skip LDA. We apply QDA next, as it produces quadratic classifier.
+```{r results='hide'}
+library(MASS)
+```
+```{r}
+qda.fit <- qda(gradu ~., data=satgradu)
+qda.fit
+```
+\newpage
+```{r}
+qda.pred=predict(qda.fit,satgradu)
+qda.class=qda.pred$class
+table(qda.class,satgradu$gradu)
+```
+Results are similar to Logistic Regression. But, before switching classification technique, we apply QDA on over sampled data.
+```{r}
+qda.fit_over <- qda(gradu ~., data=data)
+
+qda.pred_over<-predict(qda.fit_over,data)
+qda.class_over<-qda.pred_over$class
+table(qda.class_over,data$gradu)
+```
+

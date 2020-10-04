@@ -1,0 +1,330 @@
+---
+title: "Numerical Assignment Report"
+author: "Kaustav Khatua , Roll Number: 181075"
+output: pdf_document
+geometry: "top=1.5cm,bottom=1.5cm"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+**Question 1: Mixture of Gaussians with cross-validation**
+
+**a)** Function em_estimates() calculates mean vectors, variance-covariance matrices and prior probabilities for given number of classes.
+
+**b)** For cross-validation we may use LOOCV, 10 fold or 5 fold cv. 10 fold and LOOCV is computationally heavy; so we opt for 5 fold cv. Here loss function is -$\sum_{i=1}^{n}logf(x_{i})$ .Where,
+
+\begin{center} f($x_{i}$) = $\sum_{c=1}^{C}$ $\pi_{c}$ . f($x_{i}$ | ($\mu_{c}$ , $\sum_{c}$))\end{center}
+
+$\mu_{c}$ is mean vector and $\sum_{c}$ is variance-covariance matrix for c-th class.
+
+
+```{r echo=FALSE}
+cv_log_likelihood_values<-c(5.362656,5.260323,5.094372,5.108867,5.105765)
+```
+```{r}
+cv_log_likelihood_values
+```
+
+Clearly third component is the least; ie. for C=4 loss function is minimum. So, according to cross-validation we choose **C=4**.
+```{r echo=FALSE}
+aic_values<-c(5356.927,5319.206,5072.568,5072.785,5074.441)
+```
+
+
+**c)** 
+```{r}
+aic_values
+```
+
+Fourth component is the least; ie. according to AIC values **C=4** is the right choice for C.
+
+**d)** We can see that models chosen by Cross-Validation and AIC values are same.
+
+We know that,
+\begin{center}AIC = - 2 . $\sum_{i=1}^{n}$ log ( f($x_{i}$) )  +  2 . np\end{center}
+where, np is number of fitted parameters.
+
+Generally model chosen by AIC values are better; because AIC value takes into consideration the number of parameters fitted, along with negative log likelihood value. If fitting one more class does not decrease log likelihood that much so that it can suppress increase in number of fitted parameters, AIC value will not decrease.
+
+So, we **may say C=4** is the right model.
+
+
+\newpage
+**e)** Using em_estimates() function we will now calculate the estimates.
+```{r echo=FALSE}
+dat <- read.table("http://home.iitk.ac.in/~dootika/assets/course/MixG_data/181075.txt",
+                  header = F, col.names = c("X", "Y"))
+dat<-as.matrix(dat)
+
+#Function to calculate multivariate normal density value
+multivariate_normal<-function(x,mu,sigma_matrix){
+  
+  p<-ncol(x)
+  n<-nrow(x)
+  
+  value<-rep(1,n)
+  
+  for(i in 1:n){
+    log_value<-(-p/2)*log(2*pi)-(0.5*log(det(sigma_matrix)))-(0.5*t((x[i,]-mu))%*%solve(sigma_matrix)%*%(x[i,]-mu))
+    value[i]<-exp(log_value)
+  }
+  value
+}
+
+#Function for estimating mean vectors, covariance matrices and mixture probabilities
+#for given number of classes c
+em_estimates<-function(x,c){
+  
+  n<-nrow(x) #Getting number of data points.
+  p<-ncol(x) #Getting dimension of each data points. Here it will be 2.
+  
+  sample_mean<-colSums(x)/n
+  sample_variance<-var(x)
+  
+  pie_vector<-rep(1/c,c)
+  mean_vectors<-sample_mean+matrix(rnorm(p*c),nrow=p) #Creating c different mean vectors
+  #Here mean_vectors is a matrix, where ith column is mean vector for ith class
+  sigma_square<-list(1,2) #Creating an  empty list.
+  for(i in 1:c){
+    sigma_square[[i]]<-sample_variance
+  }
+  #ith element of sigma_square list is covariance matrix of ith class
+  theta<-c(pie_vector,mean_vectors,unlist(sigma_square))
+  
+  d<-1
+  ep<-matrix(1,nrow=n,ncol=c)
+  i<-0
+  while(d>10^-5){
+    
+    i<-i+1
+    old<-theta
+    for(i in 1:c){
+      ep[,i]<-pie_vector[i]*multivariate_normal(x,mu=mean_vectors[,i],sigma=sigma_square[[i]])
+    }
+    ep<-ep/rowSums(ep) #Posterior probabilities.
+    
+    pie_vector<-colSums(ep)/n #Updated prior probabilities
+    for(i in 1:c){
+      mean_vectors[,i]<-colSums(ep[,i]*x)/sum(ep[,i]) #Updated mean vectors
+    }
+    for(i in 1:c){
+      sigma_square[[i]]<-cov.wt(x,ep[,i])$cov #Updated covariance matrices
+    }
+    theta<-c(pie_vector,mean_vectors,unlist(sigma_square))
+    d<-max(abs(theta-old))
+  }
+  
+  list("mu.est"=t(mean_vectors),"sig.est"=sigma_square,"mix.est"=pie_vector,"posterior_probabilities"=ep)
+  
+}
+```
+```{r}
+estimates<-em_estimates(dat,4)
+```
+
+Mean vectors are:
+
+$\mu_{1}$ = $\left( \begin{array}{cccccc}
+   30.34921 \\
+   9.239731
+\end{array} \right)$ , 
+$\mu_{2}$ = $\left( \begin{array}{cccccc}
+   10.70645 \\
+   3.884783
+\end{array} \right)$ , 
+$\mu_{3}$ = $\left( \begin{array}{cccccc}
+   19.85683 \\
+   4.886058
+\end{array} \right)$ , 
+$\mu_{4}$ = $\left( \begin{array}{cccccc}
+   32.03310 \\
+   6.910311
+\end{array} \right)$
+
+Variance-Covariance matrices are:
+
+$\sum_{1}$ = $\left( \begin{array}{cccccc}
+   2.130160 & -2.868869 \\
+   -2.868869 &  7.620628
+\end{array} \right)$ , 
+$\sum_{2}$ = $\left( \begin{array}{cccccc}
+   4.203549 & 1.103098 \\
+   1.103098 & 2.601429
+\end{array} \right)$ , 
+$\sum_{3}$ = $\left( \begin{array}{cccccc}
+   2.604889 & 1.775947 \\
+   1.775947 & 1.751829
+\end{array} \right)$ , 
+
+$\sum_{4}$ = $\left( \begin{array}{cccccc}
+   9.911884 & -2.149897 \\
+   -2.149897 & 5.178565
+\end{array} \right)$
+
+Prior probabilities are : $\pi_{1}$ = 0.2913963 , $\pi_{2}$ = 0.2383019 , $\pi_{3}$ = 0.2497280 , $\pi_{4}$ = 0.2205738
+
+**f)** Now we will plot data according to their assigned probabilities.
+```{r}
+posterior_probabilities<-estimates$posterior_probabilities
+assigned_class<-apply(posterior_probabilities,1,which.max)
+palette(rainbow(4))
+plot(dat,col=assigned_class,pch=19)
+```
+
+\newpage
+**Note: ** I have reported the value of C according to the last run of code, where the AIC value and cross-validation methods are indicating the same model. But it was not the case all the time. Cross-validation values are more or less same, but AIC values are not stable; ie. model according to AIC values are changing, it is variying between 4 and 5 most of the times. If we choose C=5 then a class has negligible prior probability, which is indicated in the graph also.
+```{r echo=FALSE}
+estimates<-em_estimates(dat,5)
+posterior_probabilities<-estimates$posterior_probabilities
+assigned_class<-apply(posterior_probabilities,1,which.max)
+palette(rainbow(5))
+plot(dat,col=assigned_class,pch=19)
+```
+C=5 has another problem; estimates are not stable, as a result two figures for C=5 are different.
+```{r echo=FALSE}
+estimates<-em_estimates(dat,5)
+posterior_probabilities<-estimates$posterior_probabilities
+assigned_class<-apply(posterior_probabilities,1,which.max)
+palette(rainbow(5))
+plot(dat,col=assigned_class,pch=19)
+```
+Cross-Validation is estimating test error more efficiently,than AIC as it is considering more number of test set possible from our dataset. So, I have fitted model with C=4.
+
+
+\newpage
+
+**Question 2 : Bayesian Logistic Regression with MCMC**
+
+**a)** Posterior disribution of $\beta$ given y is :
+\begin{center} $\pi ( \beta | y ) = c. exp( - \frac{ \beta^T   \beta}{200} )  \prod_{i=1}^{n} p_{i} ^ {y_{i}} . (1-p_{i})^{(1-y_{i})} $ \end{center}
+where,
+ $p_{i}$ = $\frac{1}{1+exp( - x_{i}^T\beta)}$ and c is suitable constant such that $\pi (\beta | y)$ is a valid pdf.
+
+**b)** Coefficient estimates obtained from fitting logistic regression (using glm() function) are our starting values of $\beta$. It is a good starting value as it is the range of posterior distribution and it contains information about our data.
+
+```{r include=FALSE}
+dat <- read.table("http://home.iitk.ac.in/~dootika/assets/course/Log_data/181075.txt",
+                  header = F)
+required_data<-dat
+colnames(required_data)<-c("y","x1","x2","x3","x4","x5")
+```
+```{r}
+logistic_regression<-glm(y~.,data=required_data[,-2],family=binomial)
+logistic_regression$coefficients
+```
+
+These are our starting values.
+
+**c)** Our proposed distribution is N($x_{t}$,$\Sigma$). Where $\Sigma$ is a diagonal matrix with diagonal elements as standard erros obtained from using glm() function. We further tuned the elements to get acceptance probability within the range of 0.23 to 0.3.
+```{r}
+summary(logistic_regression)$coefficients
+```
+
+Tuned h values are :   0.74, 0.743, 0.38, 0.2, 0.55 and the resultant acceptance probability is 0.23445.
+**d)**  
+```{r include=FALSE}
+#Reading Data
+dat <- read.table("http://home.iitk.ac.in/~dootika/assets/course/Log_data/181075.txt",
+                  header = F)
+dat<-as.matrix(dat)
+
+#Extracting data matrix and response values
+x<-dat[,-1]
+y<-dat[,1]
+
+#Function to calculate log of posterior distribution value
+log_posterior<-function(x,y,beta_vector){
+  
+  sum(beta_vector^2)/200 + sum(y*(x%*%beta_vector)) - sum(log(1+exp(x%*%beta_vector)))
+  
+}
+
+#Function to get samples
+#Arguments of our function:
+#n: number of MCMC samples we want to generate, x: Data matrix
+#y: response values, starting_point: A vector of starting values
+#Here we are using N(mu,sigma) as proposal distribution. Here mu is current sample
+#and sigma is a diagonal matrix, which has diagonal elements as h's.
+#Length of h should be same as number of columns of data matrix.
+
+mcmc_logistic_regression_sample<-function(n,x,y,starting_point,h){
+  p<-ncol(x)
+  
+  sampled_beta<-matrix(1,nrow=n,ncol=p) #Creating a blank matrix to store samples
+  sampled_beta[1,]<-starting_point
+  
+  acceptance<-0 #acceptance counts the number of times the proposed sample is accepted
+  
+  for(i in 2:n){
+    
+    sampled_beta[i,]<-sampled_beta[i-1,]#If acceptance criteria is not met we will not move from current sample
+    #Thus we can remove else condition
+    
+    proposed_sample<-sampled_beta[i-1,]+rnorm(p,sd=h)
+    posterior_ratio<-exp(log_posterior(x,y,proposed_sample)-log_posterior(x,y,sampled_beta[i-1,]))
+    alpha<-min(1,posterior_ratio)
+    
+    u<-runif(1)
+    if(u<alpha){
+      sampled_beta[i,]<-proposed_sample
+      acceptance<-acceptance+1
+    }
+    
+  }
+  acceptance_probability<-acceptance/n
+  posterior_mean<-colSums(sampled_beta)/n
+  list("acc.prob"=acceptance_probability,"chain"=sampled_beta,"beta.est"=posterior_mean)
+}
+
+set.seed(5)
+#Using logistic regression estimates to determine coefficients and step sizes.
+dat <- read.table("http://home.iitk.ac.in/~dootika/assets/course/Log_data/181075.txt",
+                  header = F)
+required_data<-dat
+colnames(required_data)<-c("y","x1","x2","x3","x4","x5")
+logistic_regression<-glm(y~.,data=required_data[,-2],family=binomial)
+estimates<-logistic_regression$coefficients
+estimates #initial choice of beta.
+
+summary(logistic_regression)
+standard_error<-c(0.74,0.743,0.38,0.2,0.55) #Tuned h values
+required_sample_and_outcome<-mcmc_logistic_regression_sample(100000,x,y,estimates,standard_error)
+
+chain<-required_sample_and_outcome$chain
+first_component<-chain[,1]
+second_component<-chain[,2]
+third_component<-chain[,3]
+fourth_component<-chain[,4]
+fifth_component<-chain[,5]
+
+```
+```{r echo=FALSE}
+par(mfrow=c(2,3))
+acf(first_component)
+acf(second_component)
+acf(third_component)
+acf(fourth_component)
+acf(fifth_component)
+```
+\newpage
+```{r}
+par(mfrow=c(1,2))
+plot(density(first_component),main="Density Plot for First Component")
+plot(density(fifth_component),main="Density Plot for Fifth Component")
+```
+
+
+**e)** Posterior mean estimates of $\beta$ are : 
+```{r include=FALSE}
+beta.est<-required_sample_and_outcome$beta.est
+```
+```{r}
+beta.est
+```
+
+
+
+
